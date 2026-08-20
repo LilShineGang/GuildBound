@@ -222,6 +222,12 @@ function renderHeroDetail() {
           <span>❤️ ${G.fmt(s.hp)}</span><span>⚔️ ${G.fmt(s.atk)}</span><span>🛡️ ${G.fmt(s.def)}</span><span>💨 ${G.fmt(s.spd)}</span>
         </div>
         <p>Poder: <b>⚡ ${G.fmt(G.heroPower(h))}</b></p>
+
+        <div class="equip-slots">
+          ${renderEquipSlot(h, 'arma', '🗡️ Arma')}
+          ${renderEquipSlot(h, 'armadura', '🛡️ Armadura')}
+        </div>
+
         <div class="btn-row">
           <button class="btn btn-primary" id="btn-levelup" ${G.state.gold < cost ? 'disabled' : ''}>
             Subir a Nv ${h.level + 1} — 🪙 ${G.fmt(cost)}
@@ -234,6 +240,10 @@ function renderHeroDetail() {
     </div>`;
   box.querySelector('.hp-face').appendChild(facePortrait(h.archetype, h.rarity, 84));
   attachHeroCanvas($('#detail-canvas'), h.archetype, h.rarity, 'walk');
+
+  $$('.equip-slot').forEach(el => el.addEventListener('click', () => {
+      openInventoryModal(h.id, el.dataset.type);
+  }));
 
   $('#btn-levelup').addEventListener('click', () => {
     if (G.levelUpHero(h.id)) {
@@ -255,6 +265,84 @@ function renderHeroDetail() {
       toast(`${arch.name} sube ${levelsGained} nivel(es).`);
     }
   });
+}
+
+function renderEquipSlot(hero, type, label) {
+    if (hero.equipment && hero.equipment[type]) {
+        const stats = G.equipStats(hero.equipment[type]);
+        if (stats) {
+            const statStr = Object.entries(stats.stats).map(([k,v]) => `${k.toUpperCase()} +${v}`).join(' ');
+            return `<div class="equip-slot" data-type="${type}">
+                <div class="equip-item-name">${stats.name}</div>
+                <div class="equip-item-stats">${statStr}</div>
+            </div>`;
+        }
+    }
+    return `<div class="equip-slot" data-type="${type}"><span class="muted">${label}</span></div>`;
+}
+
+function openInventoryModal(heroId, type) {
+    const hero = G.heroById(heroId);
+    if (!hero) return;
+
+    const overlay = document.createElement('div');
+    overlay.className = 'inv-modal';
+
+    // Mapeamos los datos de inventario
+    const invData = G.state.inventory.map(i => {
+        return { id: i.id, stats: G.equipStats(i.id) };
+    }).filter(i => i.stats && i.stats.type === type);
+
+    const isEquipped = hero.equipment && hero.equipment[type];
+
+    let html = `<div class="inv-content">
+        <h2 style="margin-bottom:14px; color:var(--gold);">Equipar ${type === 'arma' ? 'Arma' : 'Armadura'}</h2>
+        ${isEquipped ? `<button class="btn btn-primary" id="btn-unequip" style="width:100%; margin-bottom:14px;">Quitar equipo actual</button>` : ''}
+        ${invData.length === 0 ? '<p class="muted">No tienes objetos de este tipo en el inventario. Se consiguen derrotando Jefes de expedición.</p>' : ''}
+        <div style="display:flex; flex-direction:column; gap:8px;">
+            ${invData.map(i => {
+                const statStr = Object.entries(i.stats.stats).map(([k,v]) => `${k.toUpperCase()}: +${v}`).join(' | ');
+                const isCurrentlyEquipped = G.state.heroes.some(h => h.equipment && (h.equipment.arma === i.id || h.equipment.armadura === i.id));
+                return `
+                <div class="inv-item">
+                    <div>
+                        <div class="equip-item-name">${i.stats.name} ${isCurrentlyEquipped ? '<span style="color:#ff6b6b;font-size:0.7em;">(En uso)</span>' : ''}</div>
+                        <div class="equip-item-stats">${statStr}</div>
+                    </div>
+                    <button class="btn btn-equip-item" data-id="${i.id}">Equipar</button>
+                </div>
+                `;
+            }).join('')}
+        </div>
+        <button class="btn" id="btn-close-inv" style="margin-top:14px;">Cerrar</button>
+    </div>`;
+
+    overlay.innerHTML = html;
+    document.body.appendChild(overlay);
+
+    overlay.querySelector('#btn-close-inv').addEventListener('click', () => overlay.remove());
+
+    if (isEquipped) {
+        overlay.querySelector('#btn-unequip').addEventListener('click', () => {
+            G.unequipItem(heroId, type);
+            audio.sfx('click');
+            overlay.remove();
+            renderHeroDetail();
+            rerenderSection();
+        });
+    }
+
+    overlay.querySelectorAll('.btn-equip-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const equipId = parseInt(btn.dataset.id);
+            if (G.equipItem(heroId, equipId)) {
+                audio.sfx('levelup');
+                overlay.remove();
+                renderHeroDetail();
+                rerenderSection();
+            }
+        });
+    });
 }
 
 function updateSynInfo() {
@@ -307,7 +395,16 @@ function refreshDungeonLive() {
   const best = $('#dg-best'); if (best) best.textContent = d.bestDepth;
   const pw = $('#dg-power'); if (pw) pw.textContent = G.fmt(G.teamPower());
   const logEl = $('#dg-log');
-  if (logEl) logEl.innerHTML = d.log.slice().reverse().map(l => `<div>${l}</div>`).join('');
+  if (logEl) {
+      logEl.innerHTML = d.log.slice().reverse().map(l => {
+          let style = '';
+          if (l.includes('⚔️') || l.includes('🛑')) style = 'color: #ff6b6b; font-weight: bold;';
+          else if (l.includes('👑')) style = 'color: #f5c542; font-weight: bold;';
+          else if (l.includes('✨') || l.includes('🛡️')) style = 'color: #86efac;';
+          else if (l.includes('🗡️') || l.includes('🔥') || l.includes('🏹')) style = 'color: #9bd1ff;';
+          return `<div style="${style}">${l}</div>`;
+      }).join('');
+  }
   const btn = $('#btn-run');
   if (btn) btn.textContent = d.running ? 'Retirada' : 'Iniciar expedición';
 }

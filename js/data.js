@@ -141,4 +141,22 @@ export const ECON = {
   offlineEfficiency: 0.75,   // Eficiencia mejorada al 75%
 };
 
+// --- Equipamiento ---
+export const EQUIPMENT_TYPES = ['arma', 'armadura'];
+export const EQUIPMENT_TIERS = [
+  { id: 'wood', name: 'Madera', mult: 1.1 },
+  { id: 'iron', name: 'Hierro', mult: 1.3 },
+  { id: 'steel', name: 'Acero', mult: 1.6 },
+  { id: 'mithril', name: 'Mitrilo', mult: 2.1 }
+];
+export const EQUIPMENT_ITEMS = [
+  { id: 'sword', type: 'arma', name: 'Espada de', stats: { atk: 15, spd: 2 } },
+  { id: 'staff', type: 'arma', name: 'Báculo de', stats: { atk: 22, spd: 0 } },
+  { id: 'bow', type: 'arma', name: 'Arco de', stats: { atk: 18, spd: 5 } },
+  { id: 'dagger', type: 'arma', name: 'Daga de', stats: { atk: 12, spd: 10 } },
+  { id: 'plate', type: 'armadura', name: 'Coraza de', stats: { hp: 50, def: 15 } },
+  { id: 'robe', type: 'armadura', name: 'Túnica de', stats: { hp: 20, def: 5, spd: 4 } },
+  { id: 'leather', type: 'armadura', name: 'Cuero de', stats: { hp: 35, def: 8, spd: 8 } }
+];
+
 export const STORAGE_KEY = 'guildbound-beta-save-v1';
