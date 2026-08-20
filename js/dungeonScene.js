@@ -199,7 +199,17 @@ export function attachDungeonScene(container, G) {
     }
 
     // --- Héroes (pack, mirando a la derecha) ---
-    team.slice(0, 3).forEach((h, i) => {
+    // Ordenar visualmente: Vanguardia (front) a la derecha, medio en el centro, retaguardia (back) a la izquierda.
+    const sortedTeam = team.slice(0, 3).map((h, originalIndex) => {
+      const arch = G.archetypeById(h.archetype);
+      return { h, originalIndex, position: arch.position };
+    }).sort((a, b) => {
+      const p = { 'front': 2, 'mid': 1, 'back': 0 };
+      return p[a.position] - p[b.position];
+    });
+
+    sortedTeam.forEach((item, sortedIdx) => {
+      const { h, originalIndex: i } = item;
       const fx = heroFx[i] ?? { lunge: 0, cd: 0 };
       if (d.running) {
         fx.cd -= dt;
@@ -223,7 +233,7 @@ export function attachDungeonScene(container, G) {
         fx.lunge = Math.max(0, fx.lunge - dt * 3);
       } else fx.lunge = 0;
       heroFx[i] = fx;
-      const hx = 80 + i * 66;
+      const hx = 60 + sortedIdx * 66;
       const size = 58;
       A.drawShadow(ctx, hx, groundY + 4, size * 0.62);
       const fr = d.running ? Math.floor((t * 6 + i * 1.7) % 8) : 0;

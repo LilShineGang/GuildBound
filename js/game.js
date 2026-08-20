@@ -1,15 +1,17 @@
 // ============================================================
 // Guildbound (beta web) — lógica de juego
 // ============================================================
-import { RARITIES, RARITY_CAP_BY_ERA, ARCHETYPES, SYNERGIES, ERAS, ECON, STORAGE_KEY } from './data.js';
+import { RARITIES, RARITY_CAP_BY_ERA, ARCHETYPES, SYNERGIES, ERAS, ECON, STORAGE_KEY, EQUIPMENT_TIERS, EQUIPMENT_ITEMS } from './data.js';
 
 let nextHeroId = 1;
+let nextEquipId = 1;
 
 export const state = {
   gold: 0,
   reputation: 0,
   tokens: 20,            // arranque: 2 pulls gratis
-  heroes: [],            // { id, archetype, rarity, stars, level }
+  heroes: [],            // { id, archetype, rarity, stars, level, equipment: { arma: null, armadura: null } }
+  inventory: [],         // { id, baseId, tierId }
   team: [null, null, null], // ids de héroes (formación de 3)
   dungeon: {
     running: false,
@@ -36,6 +38,21 @@ export function heroById(id) { return state.heroes.find(h => h.id === id); }
 export function globalMult() { return state.lifetimePrestigeMult; }
 
 // ---------- Héroes ----------
+export function equipStats(equipId) {
+    if (!equipId) return null;
+    const invItem = state.inventory.find(i => i.id === equipId);
+    if (!invItem) return null;
+    const base = EQUIPMENT_ITEMS.find(i => i.id === invItem.baseId);
+    const tier = EQUIPMENT_TIERS.find(t => t.id === invItem.tierId);
+    if (!base || !tier) return null;
+
+    const s = {};
+    for (const [k, v] of Object.entries(base.stats)) {
+        s[k] = Math.round(v * tier.mult * globalMult());
+    }
+    return { name: `${base.name} ${tier.name}`, stats: s, type: base.type };
+}
+
 export function heroStats(hero) {
   const arch = archetypeById(hero.archetype);
   const rar = rarityById(hero.rarity);
@@ -44,6 +61,19 @@ export function heroStats(hero) {
     * (1 + ECON.starStatGain * hero.stars);
   const s = {};
   for (const [k, v] of Object.entries(arch.baseStats)) s[k] = Math.round(v * mult);
+
+  // Añadir stats de equipo si tiene
+  if (hero.equipment) {
+      if (hero.equipment.arma) {
+          const w = equipStats(hero.equipment.arma);
+          if (w) for (const [k, v] of Object.entries(w.stats)) s[k] = (s[k] || 0) + v;
+      }
+      if (hero.equipment.armadura) {
+          const a = equipStats(hero.equipment.armadura);
+          if (a) for (const [k, v] of Object.entries(a.stats)) s[k] = (s[k] || 0) + v;
+      }
+  }
+
   return s;
 }
 
@@ -88,10 +118,31 @@ export function teamPower() {
   const members = state.team.filter(Boolean).map(heroById).filter(Boolean);
   if (members.length === 0) return 0;
   let hp = 0, atk = 0, def = 0, spd = 0;
+
+  // Bonus de rol: dar más importancia al rol según las stats base
+  // Tanques (alta vida/defensa) absorben más, Daño pega más, Healers escalan con el total.
   for (const h of members) {
     const s = heroStats(h);
-    hp += s.hp; atk += s.atk; def += s.def; spd += s.spd;
+    const arch = archetypeById(h.archetype);
+
+    // Multiplicadores por posición para simular roles en combate automático
+    let hpMult = 1, atkMult = 1, defMult = 1;
+    if (arch.position === 'front') {
+      hpMult = 1.3; // Tanques aguantan más
+      defMult = 1.3;
+    } else if (arch.position === 'back' && arch.role !== 'Sanadora') {
+      atkMult = 1.3; // DPS frágiles pero pegan duro
+    } else if (arch.role === 'Sanadora') {
+      // Healers aumentan el HP efectivo de todo el equipo
+      hp += s.atk * 2.5;
+    }
+
+    hp += s.hp * hpMult;
+    atk += s.atk * atkMult;
+    def += s.def * defMult;
+    spd += s.spd;
   }
+
   const syn = activeSynergy();
   if (syn) {
     hp *= syn.bonus.hpMult ?? 1;
@@ -144,9 +195,39 @@ export function doPull() {
     state.gold += 200 * (RARITIES.indexOf(rarity) + 1);
     return { hero: dup, isNew: false, rarity, archetype, maxed: true };
   }
-  const hero = { id: nextHeroId++, archetype: archetype.id, rarity: rarity.id, stars: 0, level: 1 };
+  const hero = { id: nextHeroId++, archetype: archetype.id, rarity: rarity.id, stars: 0, level: 1, equipment: { arma: null, armadura: null } };
   state.heroes.push(hero);
   return { hero, isNew: true, rarity, archetype };
+}
+
+// ---------- Equipamiento (acciones) ----------
+export function unequipItem(heroId, type) {
+    const hero = heroById(heroId);
+    if (!hero || !hero.equipment || !hero.equipment[type]) return false;
+    hero.equipment[type] = null;
+    return true;
+}
+
+export function equipItem(heroId, equipId) {
+    const hero = heroById(heroId);
+    const item = state.inventory.find(i => i.id === equipId);
+    if (!hero || !item) return false;
+
+    if (!hero.equipment) hero.equipment = { arma: null, armadura: null };
+
+    const base = EQUIPMENT_ITEMS.find(i => i.id === item.baseId);
+    if (!base) return false;
+
+    // Si ya alguien más lo tiene equipado, se lo quitamos
+    for (const h of state.heroes) {
+        if (h.equipment) {
+            if (h.equipment.arma === equipId) h.equipment.arma = null;
+            if (h.equipment.armadura === equipId) h.equipment.armadura = null;
+        }
+    }
+
+    hero.equipment[base.type] = equipId;
+    return true;
 }
 
 // ---------- Mazmorra (auto-battle v0: comparación de poder) ----------
@@ -196,6 +277,27 @@ function tickDungeon(dt) {
   }
   // Velocidad de piso: mejor equipo relativo → más rápido (cap x4)
   const speed = Math.min(4, Math.sqrt(tp / ep));
+
+  // Posibles eventos de combate mientras corren (solo texto ambiental para dar feedback al log)
+  if (Math.random() < dt * 0.5) {
+      const activeMembers = state.team.filter(Boolean).map(heroById).filter(Boolean);
+      if (activeMembers.length > 0) {
+        const h = activeMembers[Math.floor(Math.random() * activeMembers.length)];
+        const arch = archetypeById(h.archetype);
+        if (arch.role === 'Tanque') {
+            log(`🛡️ ${arch.name} levanta el escudo, absorbiendo el ataque enemigo.`);
+        } else if (arch.role === 'Sanadora') {
+            log(`✨ ${arch.name} recita un cántico curativo (equipo restaurado).`);
+        } else if (arch.role === 'Daño físico') {
+            log(`🗡️ ¡Golpe crítico! ${arch.name} encuentra un punto débil.`);
+        } else if (arch.role === 'Daño mágico') {
+            log(`🔥 ${arch.name} desata una onda de energía sobre el enemigo.`);
+        } else if (arch.role === 'Daño a distancia') {
+            log(`🏹 ${arch.name} acierta un disparo limpio desde la retaguardia.`);
+        }
+      }
+  }
+
   d.floorProgress += (dt / ECON.floorTimeSec) * speed;
   while (d.floorProgress >= 1) {
     d.floorProgress -= 1;
@@ -204,7 +306,19 @@ function tickDungeon(dt) {
     state.reputation += rw.rep;
     if (rw.tokens > 0) {
       state.tokens += rw.tokens;
-      log(`👑 Piso ${d.floor} (JEFE): +${rw.gold} oro, +${rw.tokens} ficha(s) de reclutamiento`);
+
+      // Chance de soltar equipamiento de jefes
+      let dropMsg = '';
+      if (Math.random() < 0.4) {
+          const b = EQUIPMENT_ITEMS[Math.floor(Math.random() * EQUIPMENT_ITEMS.length)];
+          // Tier según la era
+          const maxTier = Math.min(EQUIPMENT_TIERS.length - 1, state.era - 1);
+          const t = EQUIPMENT_TIERS[Math.floor(Math.random() * (maxTier + 1))];
+          state.inventory.push({ id: nextEquipId++, baseId: b.id, tierId: t.id });
+          dropMsg = ` 🎁 Encontraste: ${b.name} ${t.name}!`;
+      }
+
+      log(`👑 Piso ${d.floor} (JEFE): +${rw.gold} oro, +${rw.tokens} ficha(s).${dropMsg}`);
     }
     if (d.floor > d.bestDepth) d.bestDepth = d.floor;
     d.floor += 1;
@@ -271,7 +385,7 @@ let resetting = false;
 
 export function save() {
   if (resetting) return; // evita que beforeunload re-guarde tras un hardReset
-  const data = { ...state, _nextHeroId: nextHeroId };
+  const data = { ...state, _nextHeroId: nextHeroId, _nextEquipId: nextEquipId };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
 
@@ -281,8 +395,16 @@ export function load() {
   try {
     const data = JSON.parse(raw);
     nextHeroId = data._nextHeroId ?? 1;
+    nextEquipId = data._nextEquipId ?? 1;
     delete data._nextHeroId;
+    delete data._nextEquipId;
     Object.assign(state, data);
+
+    // Migración de guardados antiguos: asegurarse que existe el inventario y equipamiento en héroes
+    if (!state.inventory) state.inventory = [];
+    for (const h of state.heroes) {
+        if (!h.equipment) h.equipment = { arma: null, armadura: null };
+    }
     if (!Array.isArray(state.team) || state.team.length !== 3) state.team = [null, null, null];
     state.dungeon.running = false; // las corridas no persisten offline (v0)
     return true;

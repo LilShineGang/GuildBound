@@ -113,32 +113,50 @@ export const ERAS = [
   },
 ];
 
-// --- Economía (PLACEHOLDER — validar en hoja de cálculo) ---
+// --- Economía ---
 export const ECON = {
   // Generación pasiva base por segundo
-  goldPerSec: 1.0,
-  repPerSec: 0.05,
+  goldPerSec: 2.0,           // Aumentado para un inicio más fluido
+  repPerSec: 0.1,            // Aumentado
   // Tokens de reclutamiento: se ganan por profundidad de mazmorra y logros
-  tokensPerBossFloor: 1,     // cada 5 pisos hay jefe
+  tokensPerBossFloor: 2,     // 2 tokens por jefe (ayuda al gacha inicial)
   pullCostTokens: 10,
-  pityThreshold: 40,         // pulls sin Épico+ → Épico+ garantizado
+  pityThreshold: 30,         // pulls sin Épico+ → Épico+ garantizado (bajado de 40 a 30)
   // Mazmorra
-  floorTimeSec: 6,           // duración base de un piso
+  floorTimeSec: 5,           // duración base de un piso (ligeramente más rápido)
   bossEvery: 5,
-  enemyPowerBase: 60,
-  enemyPowerGrowth: 1.16,    // crecimiento exponencial por piso (el "muro")
-  goldPerFloorBase: 8,
-  goldPerFloorGrowth: 1.10,
-  repPerFloor: 0.5,
+  enemyPowerBase: 50,        // Inicio algo más fácil
+  enemyPowerGrowth: 1.12,    // Crecimiento exponencial más suave (retrasar el muro brutal)
+  goldPerFloorBase: 12,      // Más oro en mazmorra
+  goldPerFloorGrowth: 1.15,  // El oro crece un poco mejor que antes
+  repPerFloor: 1.0,          // Más reputación en mazmorra
   // Héroes
-  levelCostBase: 25,
-  levelCostGrowth: 1.22,
-  levelStatGain: 0.06,       // +6% stats por nivel
-  starStatGain: 0.15,        // +15% stats por estrella (duplicados)
+  levelCostBase: 30,         // Coste base ligeramente mayor pero con mejor economía global
+  levelCostGrowth: 1.18,     // Crecimiento del coste un poco más suave
+  levelStatGain: 0.08,       // +8% stats por nivel (hace que subir de nivel impacte más)
+  starStatGain: 0.20,        // +20% stats por estrella (hace que los duplicados sean más gratificantes)
   maxStars: 5,
   // Progreso offline
-  offlineCapHours: 8,
-  offlineEfficiency: 0.6,
+  offlineCapHours: 12,       // Aumentado a 12 horas para mejor QoL
+  offlineEfficiency: 0.75,   // Eficiencia mejorada al 75%
 };
+
+// --- Equipamiento ---
+export const EQUIPMENT_TYPES = ['arma', 'armadura'];
+export const EQUIPMENT_TIERS = [
+  { id: 'wood', name: 'Madera', mult: 1.1 },
+  { id: 'iron', name: 'Hierro', mult: 1.3 },
+  { id: 'steel', name: 'Acero', mult: 1.6 },
+  { id: 'mithril', name: 'Mitrilo', mult: 2.1 }
+];
+export const EQUIPMENT_ITEMS = [
+  { id: 'sword', type: 'arma', name: 'Espada de', stats: { atk: 15, spd: 2 } },
+  { id: 'staff', type: 'arma', name: 'Báculo de', stats: { atk: 22, spd: 0 } },
+  { id: 'bow', type: 'arma', name: 'Arco de', stats: { atk: 18, spd: 5 } },
+  { id: 'dagger', type: 'arma', name: 'Daga de', stats: { atk: 12, spd: 10 } },
+  { id: 'plate', type: 'armadura', name: 'Coraza de', stats: { hp: 50, def: 15 } },
+  { id: 'robe', type: 'armadura', name: 'Túnica de', stats: { hp: 20, def: 5, spd: 4 } },
+  { id: 'leather', type: 'armadura', name: 'Cuero de', stats: { hp: 35, def: 8, spd: 8 } }
+];
 
 export const STORAGE_KEY = 'guildbound-beta-save-v1';

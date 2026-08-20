@@ -21,6 +21,7 @@ export function openGachapon(reward, onDone) {
       <canvas class="gacha-canvas" width="${CW}" height="${CH}"></canvas>
       <div class="gacha-ui">
         <button class="btn btn-primary btn-big gacha-action">GIRAR</button>
+        <button class="btn gacha-skip" style="margin-left:8px;">Saltar</button>
         <div class="gacha-hint hidden">¡Golpéala para abrirla!</div>
       </div>
       <div class="gacha-info hidden">
@@ -35,6 +36,7 @@ export function openGachapon(reward, onDone) {
   const canvas = overlay.querySelector('.gacha-canvas');
   const ctx = canvas.getContext('2d');
   const actionBtn = overlay.querySelector('.gacha-action');
+  const skipBtn = overlay.querySelector('.gacha-skip');
   const hint = overlay.querySelector('.gacha-hint');
   const info = overlay.querySelector('.gacha-info');
   const box = overlay.querySelector('.gacha-box');
@@ -75,7 +77,20 @@ export function openGachapon(reward, onDone) {
   actionBtn.addEventListener('click', () => {
     if (state !== 'idle') return;
     actionBtn.classList.add('hidden');
+    skipBtn.classList.add('hidden');
     setState('spin');
+  });
+
+  skipBtn.addEventListener('click', () => {
+    if (state !== 'idle' && state !== 'tap' && state !== 'drop' && state !== 'spin') return;
+    actionBtn.classList.add('hidden');
+    skipBtn.classList.add('hidden');
+    hint.classList.add('hidden');
+    capsule.y = 380;
+    capsule.taps = 3;
+    setState('burst');
+    audio.sfx('reveal', 0.6);
+    spawnSparks(CW/2, 380, isHot ? 90 : 45, capsuleTop, true);
   });
 
   canvas.addEventListener('pointerdown', e => {
@@ -306,10 +321,15 @@ export function openGachapon(reward, onDone) {
       // aura de rareza
       if (reward.rarity.aura) {
         const ag = ctx.createRadialGradient(CW / 2, CH / 2 - 20, 12, CW / 2, CH / 2 - 20, size * 0.85);
-        ag.addColorStop(0, reward.rarity.aura + '55');
+      ag.addColorStop(0, reward.rarity.aura + '99'); // Stronger aura
         ag.addColorStop(1, reward.rarity.aura + '00');
         ctx.fillStyle = ag;
         ctx.fillRect(0, 0, CW, CH);
+
+      // Add floating particles for high rarities
+      if (isHot && Math.random() < 0.2) {
+          spawnSparks(CW/2 + (Math.random()-0.5)*150, CH/2 + (Math.random()-0.5)*150, 1, reward.rarity.color, false);
+      }
       }
       A.drawShadow(ctx, CW / 2, CH / 2 - 20 + size / 2, size * 0.55);
       const walkF = Math.floor(t * 5) % 8;
