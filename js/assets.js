@@ -38,6 +38,22 @@ img('tileset', 'assets/env/tileset.png');
 img('bubble', 'assets/hud/dialogue-bubble.png');
 img('heart', 'assets/hud/heart.png');
 
+export const ITEMS = {
+    'sword': 'assets/items/kunai.png',
+    'staff': 'assets/items/scroll-fire.png',
+    'bow': 'assets/items/arrow.png',
+    'dagger': 'assets/items/shuriken.png',
+    'plate': 'assets/items/heart.png',
+    'robe': 'assets/items/life-pot.png',
+    'leather': 'assets/items/medipack.png',
+    'chest': 'assets/items/little-treasure-chest.png',
+    'scroll': 'assets/items/scroll-empty.png',
+};
+
+for (const [key, path] of Object.entries(ITEMS)) {
+    img(`item-${key}`, path);
+}
+
 export function loadAll(onProgress) {
   let done = 0;
   return Promise.all(manifest.map(m => new Promise(res => {

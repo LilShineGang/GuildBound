@@ -19,6 +19,15 @@ export const state = {
     bestDepth: 0,        // mejor profundidad de esta Era
     floorProgress: 0,    // 0..1 del piso actual
     log: [],
+    // Dragon Quest style variables
+    combat: {
+        active: false,
+        enemyHp: 0,
+        enemyMaxHp: 0,
+        enemyName: '',
+        enemyMon: 0,
+        party: [] // { hero, hp, maxHp }
+    }
   },
   era: 1,
   lifetimePrestigeMult: 1,
@@ -250,12 +259,21 @@ export function startRun() {
   state.dungeon.floor = 1;
   state.dungeon.floorProgress = 0;
   state.dungeon.log = [`La expedición entra en ${eraData().biome.name}...`];
+
+  // Inicializar party
+  state.dungeon.combat.party = state.team.filter(Boolean).map(id => {
+      const h = heroById(id);
+      const s = heroStats(h);
+      return { hero: h, hp: s.hp, maxHp: s.hp, stats: s, turnCd: 0 };
+  });
+  state.dungeon.combat.active = false;
   return true;
 }
 
 export function stopRun() {
   state.dungeon.running = false;
   state.dungeon.floorProgress = 0;
+  state.dungeon.combat.active = false;
 }
 
 function log(msg) {
@@ -263,71 +281,134 @@ function log(msg) {
   if (state.dungeon.log.length > 30) state.dungeon.log.shift();
 }
 
-// Avanza la mazmorra dt segundos. Devuelve eventos para la UI.
+function spawnEnemy(floor) {
+    const isBoss = floor % ECON.bossEvery === 0;
+    const ep = enemyPowerAt(floor);
+    // Convertir el poder enemigo en HP/Atk rudimentario
+    const maxHp = Math.round(ep * (isBoss ? 4 : 1.5));
+    const atk = Math.round(ep * 0.2);
+
+    state.dungeon.combat.active = true;
+    state.dungeon.combat.enemyHp = maxHp;
+    state.dungeon.combat.enemyMaxHp = maxHp;
+    state.dungeon.combat.enemyName = isBoss ? 'Guardián del Bioma' : 'Monstruo Local';
+    state.dungeon.combat.enemyStats = { hp: maxHp, atk, def: Math.round(ep * 0.1), spd: 10 };
+    state.dungeon.combat.enemyTurnCd = 0;
+}
+
+// Avanza la mazmorra dt segundos
 function tickDungeon(dt) {
   const d = state.dungeon;
   if (!d.running) return;
-  const tp = teamPower();
-  const ep = enemyPowerAt(d.floor);
-  if (tp <= ep) {
-    // El muro: la corrida termina
-    d.running = false;
-    log(`⚔️ Piso ${d.floor}: el enemigo (poder ${fmt(ep)}) supera al equipo (${fmt(tp)}). Retirada.`);
-    return;
-  }
-  // Velocidad de piso: mejor equipo relativo → más rápido (cap x4)
-  const speed = Math.min(4, Math.sqrt(tp / ep));
 
-  // Posibles eventos de combate mientras corren (solo texto ambiental para dar feedback al log)
-  if (Math.random() < dt * 0.5) {
-      const activeMembers = state.team.filter(Boolean).map(heroById).filter(Boolean);
-      if (activeMembers.length > 0) {
-        const h = activeMembers[Math.floor(Math.random() * activeMembers.length)];
-        const arch = archetypeById(h.archetype);
-        if (arch.role === 'Tanque') {
-            log(`🛡️ ${arch.name} levanta el escudo, absorbiendo el ataque enemigo.`);
-        } else if (arch.role === 'Sanadora') {
-            log(`✨ ${arch.name} recita un cántico curativo (equipo restaurado).`);
-        } else if (arch.role === 'Daño físico') {
-            log(`🗡️ ¡Golpe crítico! ${arch.name} encuentra un punto débil.`);
-        } else if (arch.role === 'Daño mágico') {
-            log(`🔥 ${arch.name} desata una onda de energía sobre el enemigo.`);
-        } else if (arch.role === 'Daño a distancia') {
-            log(`🏹 ${arch.name} acierta un disparo limpio desde la retaguardia.`);
-        }
+  if (!d.combat.active) {
+      // Avanzar por el pasillo
+      d.floorProgress += (dt / ECON.floorTimeSec) * 2; // Más rápido fuera de combate
+      if (d.floorProgress >= 0.9) {
+          spawnEnemy(d.floor);
+      }
+      return;
+  }
+
+  // == LÓGICA DE COMBATE (Estilo JRPG) ==
+  let combatResolved = false;
+
+  // Héroes atacan
+  for (const pm of d.combat.party) {
+      if (pm.hp <= 0) continue;
+      pm.turnCd += dt * pm.stats.spd;
+      if (pm.turnCd >= 20) {
+          pm.turnCd = 0;
+          const arch = archetypeById(pm.hero.archetype);
+
+          if (arch.role === 'Sanadora') {
+              // Curar al que tenga menos HP
+              const target = d.combat.party.reduce((prev, curr) => (curr.hp > 0 && (curr.hp / curr.maxHp) < (prev.hp / prev.maxHp)) ? curr : prev, pm);
+              if (target.hp < target.maxHp) {
+                  const heal = Math.round(pm.stats.atk * 1.5);
+                  target.hp = Math.min(target.maxHp, target.hp + heal);
+                  log(`✨ ${arch.name} cura ${heal} HP a ${archetypeById(target.hero.archetype).name}.`);
+              } else {
+                  // Si todos están full, ataca
+                  const dmg = Math.max(1, pm.stats.atk - d.combat.enemyStats.def);
+                  d.combat.enemyHp -= dmg;
+              }
+          } else {
+              // Ataque normal o habilidad
+              let dmg = Math.max(1, pm.stats.atk - d.combat.enemyStats.def);
+              if (Math.random() < 0.2) { // 20% crit/habilidad
+                  dmg = Math.round(dmg * 1.8);
+                  if (arch.role === 'Daño físico') log(`🗡️ ¡Critico! ${arch.name} inflige ${dmg} de daño.`);
+                  else if (arch.role === 'Daño mágico') log(`🔥 ${arch.name} desata magia infligiendo ${dmg} de daño.`);
+              }
+              d.combat.enemyHp -= dmg;
+          }
+
+          if (d.combat.enemyHp <= 0) {
+              combatResolved = true;
+              break;
+          }
       }
   }
 
-  d.floorProgress += (dt / ECON.floorTimeSec) * speed;
-  while (d.floorProgress >= 1) {
-    d.floorProgress -= 1;
-    const rw = floorRewards(d.floor);
-    state.gold += rw.gold;
-    state.reputation += rw.rep;
-    if (rw.tokens > 0) {
-      state.tokens += rw.tokens;
+  // Enemigo ataca si no ha muerto
+  if (!combatResolved && d.combat.active) {
+      d.combat.enemyTurnCd += dt * d.combat.enemyStats.spd;
+      if (d.combat.enemyTurnCd >= 20) {
+          d.combat.enemyTurnCd = 0;
+          // Buscar un objetivo vivo, priorizando tanques (probabilidad)
+          const alive = d.combat.party.filter(p => p.hp > 0);
+          if (alive.length > 0) {
+              // Favorecer al tanque
+              let target = alive[Math.floor(Math.random() * alive.length)];
+              const tanks = alive.filter(p => archetypeById(p.hero.archetype).role === 'Tanque');
+              if (tanks.length > 0 && Math.random() < 0.6) target = tanks[Math.floor(Math.random() * tanks.length)];
 
-      // Chance de soltar equipamiento de jefes
-      let dropMsg = '';
-      if (Math.random() < 0.4) {
-          const b = EQUIPMENT_ITEMS[Math.floor(Math.random() * EQUIPMENT_ITEMS.length)];
-          // Tier según la era
-          const maxTier = Math.min(EQUIPMENT_TIERS.length - 1, state.era - 1);
-          const t = EQUIPMENT_TIERS[Math.floor(Math.random() * (maxTier + 1))];
-          state.inventory.push({ id: nextEquipId++, baseId: b.id, tierId: t.id });
-          dropMsg = ` 🎁 Encontraste: ${b.name} ${t.name}!`;
+              const dmg = Math.max(1, d.combat.enemyStats.atk - target.stats.def);
+              target.hp -= dmg;
+
+              if (target.hp <= 0) {
+                  log(`☠️ ${archetypeById(target.hero.archetype).name} ha caído.`);
+              }
+          }
       }
+  }
 
-      log(`👑 Piso ${d.floor} (JEFE): +${rw.gold} oro, +${rw.tokens} ficha(s).${dropMsg}`);
-    }
-    if (d.floor > d.bestDepth) d.bestDepth = d.floor;
-    d.floor += 1;
-    const nep = enemyPowerAt(d.floor);
-    if (tp <= nep) {
+  // Verificar derrota total
+  if (d.combat.party.every(p => p.hp <= 0)) {
       d.running = false;
-      log(`🛑 Piso ${d.floor}: poder enemigo ${fmt(nep)} > equipo ${fmt(tp)}. Fin de la corrida (mejor: ${d.bestDepth}).`);
-      break;
-    }
+      log(`🛑 Piso ${d.floor}: El equipo ha sido derrotado. Fin de la expedición.`);
+      return;
+  }
+
+  // Enemigo derrotado
+  if (combatResolved) {
+      d.combat.active = false;
+      d.floorProgress = 0;
+
+      const rw = floorRewards(d.floor);
+      state.gold += rw.gold;
+      state.reputation += rw.rep;
+      if (rw.tokens > 0) {
+        state.tokens += rw.tokens;
+        let dropMsg = '';
+        if (Math.random() < 0.4) {
+            const b = EQUIPMENT_ITEMS[Math.floor(Math.random() * EQUIPMENT_ITEMS.length)];
+            const maxTier = Math.min(EQUIPMENT_TIERS.length - 1, state.era - 1);
+            const t = EQUIPMENT_TIERS[Math.floor(Math.random() * (maxTier + 1))];
+            state.inventory.push({ id: nextEquipId++, baseId: b.id, tierId: t.id });
+            dropMsg = ` 🎁 ¡Encontraste ${b.name} ${t.name}!`;
+            // Pequeño evento para avisar a la UI
+            d.lastDrop = { name: `${b.name} ${t.name}`, baseId: b.id, time: Date.now() };
+        }
+        log(`👑 Piso ${d.floor} superado: +${rw.gold} oro, +${rw.tokens} ficha(s).${dropMsg}`);
+      }
+
+      if (d.floor > d.bestDepth) d.bestDepth = d.floor;
+      d.floor += 1;
+
+      // Curación natural entre pisos
+      d.combat.party.forEach(p => { if (p.hp > 0) p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * 0.1)); });
   }
 }
 
