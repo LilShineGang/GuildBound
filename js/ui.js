@@ -222,18 +222,37 @@ function renderHeroDetail() {
           <span>❤️ ${G.fmt(s.hp)}</span><span>⚔️ ${G.fmt(s.atk)}</span><span>🛡️ ${G.fmt(s.def)}</span><span>💨 ${G.fmt(s.spd)}</span>
         </div>
         <p>Poder: <b>⚡ ${G.fmt(G.heroPower(h))}</b></p>
-        <button class="btn btn-primary" id="btn-levelup" ${G.state.gold < cost ? 'disabled' : ''}>
-          Subir a Nv ${h.level + 1} — 🪙 ${G.fmt(cost)}
-        </button>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btn-levelup" ${G.state.gold < cost ? 'disabled' : ''}>
+            Subir a Nv ${h.level + 1} — 🪙 ${G.fmt(cost)}
+          </button>
+          <button class="btn btn-primary" id="btn-levelup-10" ${G.state.gold < cost ? 'disabled' : ''}>
+            Subir máx (hasta 10)
+          </button>
+        </div>
       </div>
     </div>`;
   box.querySelector('.hp-face').appendChild(facePortrait(h.archetype, h.rarity, 84));
   attachHeroCanvas($('#detail-canvas'), h.archetype, h.rarity, 'walk');
+
   $('#btn-levelup').addEventListener('click', () => {
     if (G.levelUpHero(h.id)) {
       audio.sfx('levelup');
       renderHeroDetail();
       toast(`${arch.name} sube a nivel ${h.level}.`);
+    }
+  });
+
+  $('#btn-levelup-10').addEventListener('click', () => {
+    let levelsGained = 0;
+    for(let i=0; i<10; i++) {
+        if (G.levelUpHero(h.id)) levelsGained++;
+        else break;
+    }
+    if (levelsGained > 0) {
+      audio.sfx('levelup');
+      renderHeroDetail();
+      toast(`${arch.name} sube ${levelsGained} nivel(es).`);
     }
   });
 }

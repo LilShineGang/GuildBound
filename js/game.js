@@ -88,10 +88,31 @@ export function teamPower() {
   const members = state.team.filter(Boolean).map(heroById).filter(Boolean);
   if (members.length === 0) return 0;
   let hp = 0, atk = 0, def = 0, spd = 0;
+
+  // Bonus de rol: dar más importancia al rol según las stats base
+  // Tanques (alta vida/defensa) absorben más, Daño pega más, Healers escalan con el total.
   for (const h of members) {
     const s = heroStats(h);
-    hp += s.hp; atk += s.atk; def += s.def; spd += s.spd;
+    const arch = archetypeById(h.archetype);
+
+    // Multiplicadores por posición para simular roles en combate automático
+    let hpMult = 1, atkMult = 1, defMult = 1;
+    if (arch.position === 'front') {
+      hpMult = 1.3; // Tanques aguantan más
+      defMult = 1.3;
+    } else if (arch.position === 'back' && arch.role !== 'Sanadora') {
+      atkMult = 1.3; // DPS frágiles pero pegan duro
+    } else if (arch.role === 'Sanadora') {
+      // Healers aumentan el HP efectivo de todo el equipo
+      hp += s.atk * 2.5;
+    }
+
+    hp += s.hp * hpMult;
+    atk += s.atk * atkMult;
+    def += s.def * defMult;
+    spd += s.spd;
   }
+
   const syn = activeSynergy();
   if (syn) {
     hp *= syn.bonus.hpMult ?? 1;
