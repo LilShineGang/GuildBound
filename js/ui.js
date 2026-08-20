@@ -44,6 +44,7 @@ export function buildUI() {
   registerScreen('recruit', root => section(root, 'Reclutamiento', renderRecruit));
   registerScreen('era', root => section(root, 'Estandarte del Gremio', renderEra));
   registerScreen('guild', root => section(root, 'Crónica del Gremio', renderGuild));
+  registerScreen('inventory', root => section(root, 'Almacén de Objetos', renderInventory));
 
   startTicker();
   goTo('tavern');
@@ -72,7 +73,7 @@ function rerenderSection() {
   const body = $('.section-body');
   if (!body) return;
   body.innerHTML = '';
-  ({ heroes: renderHeroes, dungeon: renderDungeon, recruit: renderRecruit, era: renderEra, guild: renderGuild })[name]?.(body);
+  ({ heroes: renderHeroes, dungeon: renderDungeon, recruit: renderRecruit, era: renderEra, guild: renderGuild, inventory: renderInventory })[name]?.(body);
 }
 
 function toast(msg) {
@@ -362,6 +363,11 @@ function renderDungeon(p) {
     <div class="card biome-card scene-card" style="--sky:${era.biome.sky};--accent:${era.biome.accent}">
       <h2>⚔️ ${era.biome.name}</h2>
       <div id="scene-holder"></div>
+
+      <div id="dq-hud" style="display:flex; gap:8px; margin: 10px 0; min-height: 40px;">
+          <!-- Dragon Quest style party HUD goes here -->
+      </div>
+
       <p>Poder del equipo: <b id="dg-power">${G.fmt(G.teamPower())}</b> · Mejor profundidad: <b id="dg-best">${d.bestDepth}</b></p>
       <div id="dg-status"></div>
       <div class="floor-bar"><div id="dg-progress"></div></div>
@@ -387,9 +393,35 @@ function refreshDungeonLive() {
   const d = G.state.dungeon;
   const st = $('#dg-status'); if (!st) return;
   const ep = d.floor > 0 ? G.enemyPowerAt(d.floor) : G.enemyPowerAt(1);
-  st.innerHTML = d.running
-    ? `<p>🏃 Piso <b>${d.floor}</b> — enemigo: poder ${G.fmt(ep)} ${d.floor % ECON.bossEvery === 0 ? '👑 JEFE' : ''}</p>`
-    : `<p class="muted">Expedición detenida. Piso 1: poder ${G.fmt(G.enemyPowerAt(1))}.</p>`;
+
+  if (d.running && d.combat.active) {
+      st.innerHTML = `<p>⚔️ Combatiendo: <b>${d.combat.enemyName}</b> (HP: ${d.combat.enemyHp}/${d.combat.enemyMaxHp})</p>`;
+  } else {
+      st.innerHTML = d.running
+        ? `<p>🏃 Explorando Piso <b>${d.floor}</b>...</p>`
+        : `<p class="muted">Expedición detenida. Piso 1: poder ${G.fmt(G.enemyPowerAt(1))}.</p>`;
+  }
+
+  // DQ HUD
+  const hud = $('#dq-hud');
+  if (hud) {
+      if (d.running && d.combat.party) {
+          hud.innerHTML = d.combat.party.map(p => {
+              const arch = G.archetypeById(p.hero.archetype);
+              const pct = Math.max(0, p.hp / p.maxHp * 100);
+              const color = pct > 50 ? '#86efac' : pct > 20 ? '#f5c542' : '#ff6b6b';
+              return `
+              <div style="flex:1; border: 2px solid var(--border2); border-radius: 6px; padding: 6px; background: rgba(0,0,0,0.5); text-align:center;">
+                  <div style="font-size:0.8rem; font-weight:bold; color:var(--gold); white-space:nowrap; overflow:hidden;">${arch.name}</div>
+                  <div style="font-size:0.9rem; color:${color};">${Math.ceil(p.hp)}/${p.maxHp}</div>
+                  <div style="height:4px; background:#111; margin-top:4px; border-radius:2px;"><div style="height:100%; width:${pct}%; background:${color};"></div></div>
+              </div>`;
+          }).join('');
+      } else {
+          hud.innerHTML = '';
+      }
+  }
+
   const bar = $('#dg-progress');
   if (bar) bar.style.width = `${Math.round((d.running ? d.floorProgress : 0) * 100)}%`;
   const best = $('#dg-best'); if (best) best.textContent = d.bestDepth;
@@ -399,7 +431,7 @@ function refreshDungeonLive() {
       logEl.innerHTML = d.log.slice().reverse().map(l => {
           let style = '';
           if (l.includes('⚔️') || l.includes('🛑')) style = 'color: #ff6b6b; font-weight: bold;';
-          else if (l.includes('👑')) style = 'color: #f5c542; font-weight: bold;';
+          else if (l.includes('👑') || l.includes('🎁')) style = 'color: #f5c542; font-weight: bold;';
           else if (l.includes('✨') || l.includes('🛡️')) style = 'color: #86efac;';
           else if (l.includes('🗡️') || l.includes('🔥') || l.includes('🏹')) style = 'color: #9bd1ff;';
           return `<div style="${style}">${l}</div>`;
@@ -407,6 +439,107 @@ function refreshDungeonLive() {
   }
   const btn = $('#btn-run');
   if (btn) btn.textContent = d.running ? 'Retirada' : 'Iniciar expedición';
+
+  // Revisar si hubo un drop nuevo para mostrar el popup
+  if (d.lastDrop && (!window.lastDropShown || window.lastDropShown < d.lastDrop.time)) {
+      window.lastDropShown = d.lastDrop.time;
+      showItemPopup(d.lastDrop);
+  }
+}
+
+function showItemPopup(drop) {
+    const popup = document.createElement('div');
+    popup.style.cssText = `
+        position: fixed; top: 30%; left: 50%; transform: translate(-50%, -50%);
+        background: linear-gradient(180deg, var(--card2), var(--card));
+        border: 3px solid var(--gold); border-radius: 12px;
+        padding: 20px 40px; text-align: center; z-index: 1000;
+        box-shadow: 0 0 50px rgba(245, 197, 66, 0.4), 0 10px 30px rgba(0,0,0,0.8);
+        animation: drop-pop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    `;
+
+    // Fallback a un cofre si no carga el sprite, pero el ideal es item-baseId
+    const imgSrc = `assets/items/${drop.baseId}.png`; // O usar el asset del diccionario
+    // En JS vanilla es más fácil usar los mismos paths de assets.js para el src de img
+
+    // Como el diccionario ITEMS no es público directamente sin importar, sabemos
+    // que hemos llamado a los resources "item-sword", etc en assets.js.
+    // Extraemos la imagen si está cargada o fallamos al genérico:
+    import('./assets.js').then(A => {
+        const imgEl = A.get(`item-${drop.baseId}`)?.cloneNode() || A.get('item-chest')?.cloneNode();
+        if (imgEl) {
+            imgEl.style.width = '64px';
+            imgEl.style.height = '64px';
+            imgEl.style.imageRendering = 'pixelated';
+            popup.insertBefore(imgEl, popup.firstChild);
+        }
+    });
+
+    popup.innerHTML += `
+        <h2 style="color:var(--gold); margin: 10px 0 5px; font-family:var(--serif);">¡Objeto Encontrado!</h2>
+        <p style="font-size:1.1rem; font-weight:bold;">${drop.name}</p>
+        <p class="muted small" style="margin-top:5px;">Añadido al inventario</p>
+    `;
+
+    document.body.appendChild(popup);
+    import('./audio.js').then(a => a.sfx('levelup', 0.5));
+
+    // Remover despues de 3 segundos
+    setTimeout(() => {
+        popup.style.animation = 'fadeout 0.4s forwards';
+        setTimeout(() => popup.remove(), 400);
+    }, 2800);
+}
+
+// ---------- Almacén de Objetos ----------
+function renderInventory(p) {
+    const invData = G.state.inventory.map(i => {
+        return { id: i.id, stats: G.equipStats(i.id), raw: i };
+    });
+
+    p.innerHTML = `
+    <div class="card">
+      <h2>🎒 Inventario del Gremio</h2>
+      <p class="muted">Aquí se guardan las reliquias y equipo obtenido en las expediciones.</p>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; margin-top:16px;" id="inv-list">
+        ${invData.length === 0 ? '<p class="muted">El almacén está vacío. ¡Envía a tus héroes de expedición!</p>' : ''}
+      </div>
+    </div>`;
+
+    const list = p.querySelector('#inv-list');
+
+    invData.forEach(item => {
+        if (!item.stats) return;
+        const el = document.createElement('div');
+        el.className = 'equip-slot';
+        el.style.width = '160px';
+        el.style.display = 'flex';
+        el.style.flexDirection = 'column';
+        el.style.alignItems = 'center';
+
+        const statStr = Object.entries(item.stats.stats).map(([k,v]) => `${k.toUpperCase()} +${v}`).join('<br>');
+        const isEquipped = G.state.heroes.find(h => h.equipment && (h.equipment.arma === item.id || h.equipment.armadura === item.id));
+        const eqBy = isEquipped ? `<span style="color:#ff6b6b;font-size:0.7em;display:block;">Equipado por ${G.archetypeById(isEquipped.archetype).name}</span>` : '';
+
+        el.innerHTML = `
+            <div style="width:48px; height:48px; margin-bottom:8px;" id="icon-${item.id}"></div>
+            <div class="equip-item-name" style="font-size:0.9rem;">${item.stats.name}</div>
+            <div class="equip-item-stats" style="margin-bottom:4px;">${statStr}</div>
+            ${eqBy}
+        `;
+        list.appendChild(el);
+
+        // Añadir imagen async
+        import('./assets.js').then(A => {
+            const imgEl = A.get(`item-${item.raw.baseId}`)?.cloneNode() || A.get('item-chest')?.cloneNode();
+            if (imgEl) {
+                imgEl.style.width = '100%';
+                imgEl.style.height = '100%';
+                imgEl.style.imageRendering = 'pixelated';
+                el.querySelector(`#icon-${item.id}`).appendChild(imgEl);
+            }
+        });
+    });
 }
 
 // ---------- Reclutamiento ----------
@@ -414,20 +547,20 @@ function renderRecruit(p) {
   const cap = G.state.era <= 1 ? 'Épico' : G.state.era === 2 ? 'Legendario' : 'Mítico';
   p.innerHTML = `
     <div class="card recruit-card">
-      <h2>✨ La forastera de la barra</h2>
-      <p class="muted">«¿Buscas espadas para tu compañía? Gira la máquina y veamos quién responde a la llamada…»</p>
+      <h2>✨ Contratos del Gremio</h2>
+      <p class="muted">«¿Buscas espadas para tu compañía? Firma un contrato mágico y veamos quién responde a la llamada…»</p>
       <p>Coste: 🎟️ <b>${G.pullCost()}</b> · Tienes: <b>${G.fmt(G.state.tokens)}</b></p>
       <p class="muted">Pity: Épico+ garantizado cada ${ECON.pityThreshold} — llevas <b>${G.state.pityCounter}/${ECON.pityThreshold}</b>.
       Rareza máx. de la Era: <b>${cap}</b>.</p>
       <div class="btn-row">
-        <button class="btn btn-primary btn-big" id="btn-pull" ${G.canPull() ? '' : 'disabled'}>Invocar recluta 🎟️${G.pullCost()}</button>
+        <button class="btn btn-primary btn-big" id="btn-pull" ${G.canPull() ? '' : 'disabled'}>Firmar Contrato 🎟️${G.pullCost()}</button>
       </div>
       <div class="rates small muted">
         ${RARITIES.slice(0, G.state.era <= 1 ? 4 : G.state.era === 2 ? 5 : 6).map(r => `<span style="color:${r.color}">${r.name} ${r.weight}%</span>`).join(' · ')}
       </div>
     </div>
     <div class="card small muted">
-      🎟️ Las fichas caen de los <b>jefes</b> (cada ${ECON.bossEvery} pisos). Duplicado → +1★ (máx ${ECON.maxStars}).
+      🎟️ Los sellos de reclutamiento caen de los <b>jefes</b> (cada ${ECON.bossEvery} pisos). Duplicado → +1★ (máx ${ECON.maxStars}).
     </div>`;
   $('#btn-pull')?.addEventListener('click', () => {
     const reward = G.doPull();

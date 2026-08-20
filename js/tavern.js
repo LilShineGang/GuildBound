@@ -16,6 +16,7 @@ const HOTSPOTS = [
   { id: 'heroes', label: '🛡 Héroes', x: 51, y: 78, hint: 'La mesa de la compañía' },
   { id: 'era', label: '🏛 Era', x: 46, y: 22, hint: 'El estandarte del gremio' },
   { id: 'guild', label: '📜 Crónica', x: 10, y: 72, hint: 'Junto al fuego se cuentan historias' },
+  { id: 'inventory', label: '🎒 Almacén', x: 88, y: 78, hint: 'Cofres de botín' },
 ];
 
 export function buildTavern(root, G, navigate) {
